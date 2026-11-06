@@ -436,4 +436,16 @@ chrome.windows.onFocusChanged.addListener(updateIcon);
 // Initial icon update
 updateIcon();
 
+// Send initial instances to all tabs on startup
+getJiraInstances().then(instances => {
+  chrome.tabs.query({}, (tabs) => {
+    tabs.forEach(tab => {
+      chrome.tabs.sendMessage(tab.id, { 
+        type: 'UPDATE_JIRA_INSTANCES',
+        instances 
+      }).catch(() => {}); // Ignore errors if tab doesn't have content script
+    });
+  });
+});
+
 console.log('[eco-jira] Background script loaded');

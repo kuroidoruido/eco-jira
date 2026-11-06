@@ -24,6 +24,37 @@ const testConnectionBtn = document.getElementById('test-connection-btn');
 let currentTabUrl = null;
 let currentInstance = null;
 
+// Logs storage
+let ecoJiraLogs = [];
+
+// Add log function
+function addLog(message, type = 'info', data = null) {
+  const timestamp = new Date().toISOString();
+  const logEntry = `[${timestamp}] [${type.toUpperCase()}] ${message}`;
+  ecoJiraLogs.push(logEntry);
+  console.log(`[eco-jira] ${logEntry}`, data || '');
+  
+  // Keep only last 100 logs
+  if (ecoJiraLogs.length > 100) {
+    ecoJiraLogs = ecoJiraLogs.slice(-100);
+  }
+  
+  // Update modal if open
+  const logsContent = document.getElementById('logs-content');
+  if (logsContent && logsContent.style.display !== 'none') {
+    updateLogsDisplay();
+  }
+}
+
+// Update logs display
+function updateLogsDisplay() {
+  const logsContent = document.getElementById('logs-content');
+  if (logsContent) {
+    logsContent.textContent = ecoJiraLogs.join('\n');
+    logsContent.scrollTop = logsContent.scrollHeight;
+  }
+}
+
 // Storage keys
 const STORAGE_KEYS = {
   INSTANCES: 'jira_instances',
@@ -216,38 +247,48 @@ function isPotentialJiraUrl(url) {
 
 // Verify Jira instance
 async function verifyJiraInstance(baseUrl) {
-  const response = await sendMessage({ type: 'VERIFY_JIRA', url: baseUrl });
-  return response ? response.isValid : false;
+  addLog(`Verifying Jira instance: ${baseUrl}`);
+  try {
+    const response = await sendMessage({ type: 'VERIFY_JIRA', url: baseUrl });
+    const isValid = response ? response.isValid : false;
+    addLog(`Verification result for ${baseUrl}: ${isValid ? 'VALID' : 'INVALID'}`);
+    return isValid;
+  } catch (error) {
+    addLog(`Error verifying Jira instance ${baseUrl}: ${error.message}`, 'error');
+    return false;
+  }
 }
 
 // Handle activate current site - MUST be called from user input handler
 activateBtn.addEventListener('click', function() {
+  addLog('Activate button clicked');
+  
   if (!currentTabUrl) {
+    addLog('No active tab', 'error');
     showToast('Aucun onglet actif', 'error');
-    console.error('[eco-jira] No active tab');
     return;
   }
 
   const url = new URL(currentTabUrl);
   const baseUrl = `${url.protocol}//${url.hostname}`;
   
-  console.log('[eco-jira] User clicked activate for:', baseUrl);
-  console.log('[eco-jira] Requesting permissions (must be direct user gesture)...');
+  addLog(`Attempting to activate: ${baseUrl}`);
+  addLog('Requesting permissions (must be direct user gesture)...');
   
   // permissions.request MUST be called directly from user input handler
   // This is the ONLY way Chrome/Firefox will show the permission prompt
   chrome.permissions.request({
     origins: [`${baseUrl}/*`]
   }, function(granted) {
-    console.log('[eco-jira] Permissions result:', granted);
+    addLog( Permissions result:', granted);
     
     if (!granted) {
-      console.error('[eco-jira] Permissions denied by user for:', baseUrl);
+      addLog( Permissions denied by user for:', baseUrl);
       showToast('Permission refusée', 'error');
       return;
     }
     
-    console.log('[eco-jira] Permissions granted, checking if already exists...');
+    addLog( Permissions granted, checking if already exists...');
     
     // Now check if already registered
     sendMessage({ type: 'GET_JIRA_INSTANCES' }).then(async (response) => {
@@ -255,7 +296,7 @@ activateBtn.addEventListener('click', function() {
       const existing = instances.find(i => i.baseUrl === baseUrl);
       
       if (existing) {
-        console.log('[eco-jira] Already activated:', baseUrl);
+        addLog( Already activated:', baseUrl);
         showToast('Déjà activé', 'error');
         return;
       }
@@ -277,17 +318,17 @@ activateBtn.addEventListener('click', function() {
         
         if (isJira) {
           showToast('Site activé !', 'success');
-          console.log('[eco-jira] SUCCESS: Jira site activated:', baseUrl);
+          addLog( SUCCESS: Jira site activated:', baseUrl);
         } else {
           showToast('Site ajouté (vérification nécessaire)', 'success');
-          console.log('[eco-jira] SUCCESS: Site added, verification needed:', baseUrl);
+          addLog( SUCCESS: Site added, verification needed:', baseUrl);
         }
       } catch (error) {
-        console.error('[eco-jira] Error after permissions:', error);
+        addLog( Error after permissions:', error);
         showToast('Erreur lors de l\'activation', 'error');
       }
     }).catch(error => {
-      console.error('[eco-jira] Error checking instances:', error);
+      addLog( Error checking instances:', error);
       showToast('Erreur de vérification', 'error');
     });
   });
@@ -340,17 +381,36 @@ async function removeInstance(baseUrl) {
 
 // Test instance connection
 async function testInstanceConnection(baseUrl) {
+  addLog(`Testing connection to: ${baseUrl}`);
+  
+  // Get the button that was clicked
+  const testBtn = document.querySelector(`button[onclick*="testInstanceConnection('${baseUrl.replace(/'/g, "\\'")}'")"]`);
+  const originalText = testBtn ? testBtn.textContent : 'Test';
+  
+  if (testBtn) {
+    testBtn.textContent = '...';
+    testBtn.disabled = true;
+  }
+  
   try {
+    addLog(`Sending verification request to ${baseUrl}/rest/api/2/serverInfo`);
     const isValid = await verifyJiraInstance(baseUrl);
     
     if (isValid) {
+      addLog(`Connection valid for ${baseUrl}`, 'success');
       showToast('Connexion valide ✓', 'success');
     } else {
-      showToast('Connexion échouée ou non-Jira', 'error');
+      addLog(`Connection failed or not Jira: ${baseUrl}`, 'warn');
+      showToast('Connexion échouée ou non-Jira', 'warn');
     }
   } catch (error) {
-    console.error('Error testing connection:', error);
-    showToast('Erreur de test', 'error');
+    addLog(`Error testing connection: ${error.message}`, 'error');
+    showToast(`Erreur: ${error.message}`, 'error');
+  } finally {
+    if (testBtn) {
+      testBtn.textContent = originalText;
+      testBtn.disabled = false;
+    }
   }
 }
 
@@ -416,6 +476,64 @@ async function init() {
 // Make functions available for inline event handlers
 window.removeInstance = removeInstance;
 window.testInstanceConnection = testInstanceConnection;
+
+// Logs modal handlers
+document.addEventListener('DOMContentLoaded', () => {
+  // Info/Logs link
+  const infoLink = document.getElementById('info-link');
+  const logsModal = document.getElementById('logs-modal');
+  const closeLogs = document.getElementById('close-logs');
+  const clearLogsBtn = document.getElementById('clear-logs');
+  const downloadLogsBtn = document.getElementById('download-logs');
+  
+  if (infoLink) {
+    infoLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (logsModal) {
+        logsModal.style.display = 'flex';
+        updateLogsDisplay();
+      }
+    });
+  }
+  
+  if (closeLogs) {
+    closeLogs.addEventListener('click', () => {
+      if (logsModal) logsModal.style.display = 'none';
+    });
+  }
+  
+  if (clearLogsBtn) {
+    clearLogsBtn.addEventListener('click', () => {
+      ecoJiraLogs = [];
+      updateLogsDisplay();
+      addLog('Logs cleared', 'info');
+    });
+  }
+  
+  if (downloadLogsBtn) {
+    downloadLogsBtn.addEventListener('click', () => {
+      const blob = new Blob([ecoJiraLogs.join('\n')], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `eco-jira-logs-${new Date().toISOString().slice(0, 10)}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      addLog('Logs downloaded', 'info');
+    });
+  }
+  
+  // Close modal on outside click
+  if (logsModal) {
+    logsModal.addEventListener('click', (e) => {
+      if (e.target === logsModal) {
+        logsModal.style.display = 'none';
+      }
+    });
+  }
+});
 
 // Initialize on DOM load
 document.addEventListener('DOMContentLoaded', init);

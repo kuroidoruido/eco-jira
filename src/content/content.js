@@ -7,14 +7,20 @@
 (function() {
   'use strict';
 
+  // Log function - logs will be visible in console
+  function ecoJiraLog(message, type = 'info', data = null) {
+    const timestamp = new Date().toISOString();
+    console.log(`[eco-jira] [${timestamp}] [${type.toUpperCase()}] ${message}`, data || '');
+  }
+
   // Cache to store intercepted functions
   const originalFetch = window.fetch;
   const originalXHROpen = XMLHttpRequest.prototype.open;
   const originalXHRSend = XMLHttpRequest.prototype.send;
 
-  // Message handler for communication with background
-  let messageIdCounter = 0;
-  const pendingRequests = new Map();
+  // Store Jira instances and cache locally
+  let jiraInstances = [];
+  let requestCache = new Map();
 
   // Storage keys
   const STORAGE_KEYS = {
@@ -62,11 +68,17 @@
     return url.includes('/rest/api/2/issue/') && url.includes('/worklog');
   }
 
+  function isBatchEndpoint(url) {
+    return url.includes('/s/') && url.includes('/batch.js') ||
+           url.includes('/s/') && url.includes('/batch.css');
+  }
+
   function getCacheTTL(url) {
     if (isImmutableEndpoint(url)) return CACHE_TTLS.METADATA;
     if (isCommentEndpoint(url)) return CACHE_TTLS.COMMENTS;
     if (isWorklogEndpoint(url)) return CACHE_TTLS.WORKLOGS;
     if (isIssueEndpoint(url)) return CACHE_TTLS.ISSUES;
+    if (isBatchEndpoint(url)) return CACHE_TTLS.METADATA; // Cache batch files aggressively
     return CACHE_TTLS.NAVIGATION;
   }
 
@@ -74,82 +86,58 @@
     return `${method}:${url}`;
   }
 
-  // Helper to check if URL is from a registered Jira instance
-  async function isJiraUrl(urlString) {
+  // Check if URL belongs to a Jira instance
+  function isJiraRequest(urlString, method = 'GET') {
     try {
       const url = new URL(urlString);
-      const instances = await getJiraInstances();
-      return instances.some(instance => {
+      
+      // Check if URL matches any registered Jira instance
+      for (const instance of jiraInstances) {
         try {
           const instanceUrl = new URL(instance.baseUrl);
-          return url.hostname === instanceUrl.hostname;
+          if (url.hostname === instanceUrl.hostname) {
+            // Only cache GET requests for now
+            if (method === 'GET') {
+              return true;
+            }
+            return false;
+          }
         } catch (e) {
-          return false;
+          // Invalid instance URL, skip
         }
-      });
+      }
+      
+      // Also check for common Jira patterns (in case instances not loaded yet)
+      if (url.hostname.includes('atlassian.net') || 
+          url.hostname.includes('jira') ||
+          url.pathname.includes('/jira')) {
+        return method === 'GET';
+      }
+      
+      return false;
     } catch (e) {
       return false;
     }
   }
 
-  // Get Jira instances from background
-  async function getJiraInstances() {
-    return new Promise((resolve) => {
-      chrome.runtime.sendMessage({ type: 'GET_JIRA_INSTANCES' }, (response) => {
-        if (chrome.runtime.lastError) {
-          resolve([]);
-        } else if (response && response.success) {
-          resolve(response.instances || []);
-        } else {
-          resolve([]);
-        }
-      });
-    });
-  }
+  // Message handler for communication with background
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'UPDATE_JIRA_INSTANCES') {
+      jiraInstances = message.instances || [];
+      ecoJiraLog(`Updated Jira instances: ${jiraInstances.length} instances`, 'info', jiraInstances);
+    }
+    return true;
+  });
 
-  // Check cache via background
-  async function getCachedResponse(cacheKey) {
-    return new Promise((resolve) => {
-      chrome.runtime.sendMessage({ 
-        type: 'GET_CACHED_RESPONSE', 
-        cacheKey 
-      }, (response) => {
-        if (chrome.runtime.lastError) {
-          resolve(null);
-        } else if (response && response.success && response.cached) {
-          resolve(response.data);
-        } else {
-          resolve(null);
-        }
-      });
-    });
-  }
-
-  // Cache response via background
-  async function cacheResponse(cacheKey, responseData, url) {
-    return new Promise((resolve) => {
-      chrome.runtime.sendMessage({ 
-        type: 'CACHE_RESPONSE', 
-        cacheKey,
-        responseData,
-        url
-      }, (response) => {
-        resolve(response && response.success);
-      });
-    });
-  }
-
-  // Update stats via background
-  async function updateStats(statsUpdate) {
-    return new Promise((resolve) => {
-      chrome.runtime.sendMessage({ 
-        type: 'UPDATE_STATS', 
-        statsUpdate
-      }, (response) => {
-        resolve(response && response.success);
-      });
-    });
-  }
+  // Request instances from background on load
+  chrome.runtime.sendMessage({ type: 'GET_JIRA_INSTANCES' }, (response) => {
+    if (response && response.instances) {
+      jiraInstances = response.instances;
+      ecoJiraLog(`Loaded ${jiraInstances.length} Jira instances`, 'info', jiraInstances);
+    } else {
+      ecoJiraLog('No Jira instances loaded', 'warn');
+    }
+  });
 
   // Parse headers from XHR
   function parseHeaders(headersString) {
@@ -168,78 +156,109 @@
   // Check if response can be cached
   function canCacheResponse(response, url) {
     if (response.status >= 400) return false;
+    
     const cacheControl = response.headers.get('cache-control');
     if (cacheControl && cacheControl.includes('no-cache')) return false;
     if (cacheControl && cacheControl.includes('private')) return false;
+    
+    // Don't cache non-Jira URLs
     return true;
+  }
+
+  // Store response in local cache
+  function storeInCache(cacheKey, url, response) {
+    const cacheEntry = {
+      url,
+      timestamp: Date.now(),
+      ttl: getCacheTTL(url),
+      status: response.status,
+      statusText: response.statusText,
+      headers: Object.fromEntries(response.headers.entries()),
+      body: null,
+      size: parseInt(response.headers.get('content-length')) || 0
+    };
+    
+    // Store body as array
+    response.clone().arrayBuffer().then(buffer => {
+      cacheEntry.body = Array.from(new Uint8Array(buffer));
+      cacheEntry.size = buffer.byteLength;
+      requestCache.set(cacheKey, cacheEntry);
+      ecoJiraLog(`Cached response for ${url} (${cacheEntry.size} bytes)`, 'cache');
+    }).catch(e => {
+      ecoJiraLog(`Error caching body for ${url}: ${e.message}`, 'error');
+    });
+    
+    return cacheEntry;
+  }
+
+  // Check cache
+  function getFromCache(cacheKey) {
+    const entry = requestCache.get(cacheKey);
+    if (!entry) return null;
+    
+    if (Date.now() - entry.timestamp > entry.ttl) {
+      requestCache.delete(cacheKey);
+      return null;
+    }
+    
+    return entry;
   }
 
   // Override fetch
   window.fetch = async function(resource, init = {}) {
     const method = (init.method || 'GET').toUpperCase();
-    
-    // Only intercept GET requests
-    if (method !== 'GET') {
-      return originalFetch.call(this, resource, init);
-    }
-    
-    // Get full URL
     const url = new URL(resource, window.location.href).href;
     
-    // Check if this is a Jira URL
-    const isJira = await isJiraUrl(url);
-    if (!isJira) {
+    // Only process GET requests for Jira instances
+    if (method !== 'GET' || !isJiraRequest(url, method)) {
       return originalFetch.call(this, resource, init);
     }
     
-    // Generate cache key
     const cacheKey = generateSimpleCacheKey(url, method);
+    ecoJiraLog(`Fetch request: ${method} ${url}`);
     
-    // Check cache via background
-    const cachedResponse = await getCachedResponse(cacheKey);
+    // Check cache
+    const cached = getFromCache(cacheKey);
     
-    if (cachedResponse) {
-      console.log(`[eco-jira] Using cached response for ${url}`);
+    if (cached) {
+      ecoJiraLog(`Cache HIT for ${url}`, 'cache');
       
-      // Update stats
-      await updateStats({
-        bytesSaved: cachedResponse.size || 0,
-        requestsSaved: 1,
-        cacheHits: 1
+      // Update stats via background
+      chrome.runtime.sendMessage({ 
+        type: 'UPDATE_STATS',
+        statsUpdate: {
+          bytesSaved: cached.size || 0,
+          requestsSaved: 1,
+          cacheHits: 1
+        }
       });
       
       // Create Response object from cached data
       const response = new Response(
-        new Blob([new Uint8Array(cachedResponse.body)]),
+        new Blob([new Uint8Array(cached.body)]),
         {
-          status: cachedResponse.status,
-          statusText: cachedResponse.statusText || '',
-          headers: new Headers(cachedResponse.headers)
+          status: cached.status,
+          statusText: cached.statusText || '',
+          headers: new Headers(cached.headers)
         }
       );
       
       return response;
     } else {
+      ecoJiraLog(`Cache MISS for ${url}`, 'cache');
+      
       // Update cache miss stat
-      await updateStats({ cacheMisses: 1 });
+      chrome.runtime.sendMessage({ 
+        type: 'UPDATE_STATS',
+        statsUpdate: { cacheMisses: 1 }
+      });
       
       // Proceed with original fetch
       const response = await originalFetch.call(this, resource, init);
       
       // Cache successful responses
       if (canCacheResponse(response, url)) {
-        const clone = response.clone();
-        const body = await clone.arrayBuffer();
-        
-        const responseData = {
-          status: response.status,
-          statusText: response.statusText,
-          headers: Object.fromEntries(response.headers.entries()),
-          body: Array.from(new Uint8Array(body)),
-          size: body.byteLength
-        };
-        
-        await cacheResponse(cacheKey, responseData, url);
+        storeInCache(cacheKey, url, response);
       }
       
       return response;
@@ -265,40 +284,37 @@
     const method = this._method;
     const url = this._url;
     
-    // Only intercept GET requests
-    if (method !== 'GET') {
+    // Only process GET requests for Jira instances
+    if (method !== 'GET' || !isJiraRequest(url, method)) {
       return originalXHRSend.apply(this, arguments);
     }
     
-    // Check if this is a Jira URL
-    const isJira = await isJiraUrl(url);
-    if (!isJira) {
-      return originalXHRSend.apply(this, arguments);
-    }
-    
-    // Generate cache key
     const cacheKey = generateSimpleCacheKey(url, method);
+    ecoJiraLog(`XHR request: ${method} ${url}`);
     
-    // Check cache via background
-    const cachedResponse = await getCachedResponse(cacheKey);
+    // Check cache
+    const cached = getFromCache(cacheKey);
     
-    if (cachedResponse) {
-      console.log(`[eco-jira] Using cached response for XHR ${url}`);
+    if (cached) {
+      ecoJiraLog(`XHR Cache HIT for ${url}`, 'cache');
       
       // Update stats
-      await updateStats({
-        bytesSaved: cachedResponse.size || 0,
-        requestsSaved: 1,
-        cacheHits: 1
+      chrome.runtime.sendMessage({ 
+        type: 'UPDATE_STATS',
+        statsUpdate: {
+          bytesSaved: cached.size || 0,
+          requestsSaved: 1,
+          cacheHits: 1
+        }
       });
       
       // Simulate response
       const xhr = this;
-      xhr.status = cachedResponse.status;
-      xhr.statusText = cachedResponse.statusText || '';
+      xhr.status = cached.status;
+      xhr.statusText = cached.statusText || '';
       
       // Convert body to string
-      const bodyArray = new Uint8Array(cachedResponse.body);
+      const bodyArray = cached.body ? new Uint8Array(cached.body) : new Uint8Array();
       const bodyString = new TextDecoder().decode(bodyArray);
       
       xhr.responseText = bodyString;
@@ -306,7 +322,7 @@
       
       // Mock getResponseHeader
       xhr.getResponseHeader = function(headerName) {
-        const headers = cachedResponse.headers || {};
+        const headers = cached.headers || {};
         for (const [key, value] of Object.entries(headers)) {
           if (key.toLowerCase() === headerName.toLowerCase()) {
             return value;
@@ -316,7 +332,7 @@
       };
       
       xhr.getAllResponseHeaders = function() {
-        const headers = cachedResponse.headers || {};
+        const headers = cached.headers || {};
         return Object.entries(headers)
           .map(([key, value]) => `${key}: ${value}`)
           .join('\r\n');
@@ -336,8 +352,13 @@
       
       return;
     } else {
+      ecoJiraLog(`XHR Cache MISS for ${url}`, 'cache');
+      
       // Update cache miss stat
-      await updateStats({ cacheMisses: 1 });
+      chrome.runtime.sendMessage({ 
+        type: 'UPDATE_STATS',
+        statsUpdate: { cacheMisses: 1 }
+      });
       
       // Store original callbacks
       const originalOnReadyStateChange = this.onreadystatechange;
@@ -348,22 +369,24 @@
       this.onreadystatechange = function() {
         if (this.readyState === 4) {
           if (this.status >= 200 && this.status < 300) {
-            // Get response data
             const responseText = this.responseText || this.response;
             const bodyArray = new TextEncoder().encode(responseText);
             
-            const responseData = {
+            // Create a mock Response object for caching
+            const mockResponse = {
               status: this.status,
               statusText: this.statusText,
-              headers: this.getAllResponseHeaders ? 
-                parseHeaders(this.getAllResponseHeaders()) : {},
-              body: Array.from(new Uint8Array(bodyArray.buffer)),
-              size: bodyArray.byteLength
+              headers: new Headers(this.getAllResponseHeaders ? 
+                parseHeaders(this.getAllResponseHeaders()) : {}),
+              clone: function() {
+                return {
+                  arrayBuffer: async () => bodyArray.buffer,
+                  headers: this.headers
+                };
+              }
             };
             
-            cacheResponse(cacheKey, responseData, url).catch(e => {
-              console.error('[eco-jira] Error caching XHR response:', e);
-            });
+            storeInCache(cacheKey, url, mockResponse);
           }
         }
         
@@ -377,18 +400,20 @@
           const responseText = this.responseText || this.response;
           const bodyArray = new TextEncoder().encode(responseText);
           
-          const responseData = {
+          const mockResponse = {
             status: this.status,
             statusText: this.statusText,
-            headers: this.getAllResponseHeaders ? 
-              parseHeaders(this.getAllResponseHeaders()) : {},
-            body: Array.from(new Uint8Array(bodyArray.buffer)),
-            size: bodyArray.byteLength
+            headers: new Headers(this.getAllResponseHeaders ? 
+              parseHeaders(this.getAllResponseHeaders()) : {}),
+            clone: function() {
+              return {
+                arrayBuffer: async () => bodyArray.buffer,
+                headers: this.headers
+              };
+            }
           };
           
-          cacheResponse(cacheKey, responseData, url).catch(e => {
-            console.error('[eco-jira] Error caching XHR response:', e);
-          });
+          storeInCache(cacheKey, url, mockResponse);
         }
         
         if (originalOnLoad) {
@@ -407,5 +432,14 @@
     }
   };
 
-  console.log('[eco-jira] Content script loaded');
+  // Initial log
+  ecoJiraLog('Content script loaded and ready to intercept requests');
+  
+  // Listen for instance updates
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.type === 'UPDATE_JIRA_INSTANCES') {
+      jiraInstances = message.instances || [];
+      ecoJiraLog(`Updated Jira instances in content script: ${jiraInstances.length}`);
+    }
+  });
 })();
