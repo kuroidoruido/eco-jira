@@ -133,8 +133,8 @@ async function isJiraUrl(urlString) {
     return instances.some(instance => {
       try {
         const instanceUrl = new URL(instance.baseUrl);
-        // Compare hostname WITHOUT port
-        return url.hostname.replace(/:\d+$/, '') === instanceUrl.hostname.replace(/:\d+$/, '');
+        // Compare full host (includes port)
+        return url.host === instanceUrl.host;
       } catch (e) {
         return false;
       }
@@ -309,8 +309,8 @@ async function updateIcon() {
       const isActive = instances.some(instance => {
         try {
           const instanceUrl = new URL(instance.baseUrl);
-          // Compare hostname WITHOUT port
-          return url.hostname.replace(/:\d+$/, '') === instanceUrl.hostname.replace(/:\d+$/, '');
+          // Compare full host (includes port)
+          return url.host === instanceUrl.host;
         } catch (e) {
           return false;
         }

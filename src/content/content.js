@@ -95,8 +95,8 @@
       for (const instance of jiraInstances) {
         try {
           const instanceUrl = new URL(instance.baseUrl);
-          // Compare hostname WITHOUT port
-          if (url.hostname.replace(/:\d+$/, '') === instanceUrl.hostname.replace(/:\d+$/, '')) {
+          // Compare full host (includes port)
+          if (url.host === instanceUrl.host) {
             // Only cache GET requests for now
             if (method === 'GET') {
               return true;
@@ -109,12 +109,11 @@
       }
       
       // Also check for common Jira patterns (in case instances not loaded yet)
-      if (url.hostname.includes('atlassian.net') || 
-          url.hostname.includes('jira') ||
+      if (url.host.includes('atlassian.net') || 
+          url.host.includes('jira') ||
           url.pathname.includes('/jira') ||
-          url.hostname === 'localhost' ||
-          url.hostname === '127.0.0.1' ||
-          url.hostname.match(/^localhost:\d+$/)) {
+          url.host.includes('localhost') ||
+          url.host.includes('127.0.0.1')) {
         return method === 'GET';
       }
       
@@ -137,9 +136,10 @@
   chrome.runtime.sendMessage({ type: 'GET_JIRA_INSTANCES' }, (response) => {
     if (response && response.instances) {
       jiraInstances = response.instances;
-      ecoJiraLog(`Loaded ${jiraInstances.length} Jira instances`, 'info', jiraInstances);
+      ecoJiraLog(`Loaded ${jiraInstances.length} Jira instances: ${jiraInstances.map(i => i.baseUrl).join(', ')}`, 'info');
     } else {
-      ecoJiraLog('No Jira instances loaded', 'warn');
+      ecoJiraLog('No Jira instances loaded from background', 'warn');
+      ecoJiraLog(`Fallback: jiraInstances is empty, will use pattern matching`, 'warn');
     }
   });
 
@@ -222,10 +222,15 @@
     const method = (init.method || 'GET').toUpperCase();
     const url = new URL(resource, window.location.href).href;
     
+    ecoJiraLog(`Fetch intercepted: ${method} ${url}`, 'debug');
+    
     // Only process GET requests for Jira instances
     if (method !== 'GET' || !isJiraRequest(url, method)) {
+      ecoJiraLog(`Skipping (not GET or not Jira): ${method} ${url}`, 'debug');
       return originalFetch.call(this, resource, init);
     }
+    
+    ecoJiraLog(`Processing Jira request: ${method} ${url}`, 'debug');
     
     const cacheKey = generateSimpleCacheKey(url, method);
     ecoJiraLog(`Fetch request: ${method} ${url}`);
@@ -301,10 +306,15 @@
     const method = this._method;
     const url = this._url;
     
+    ecoJiraLog(`XHR intercepted: ${method} ${url}`, 'debug');
+    
     // Only process GET requests for Jira instances
     if (method !== 'GET' || !isJiraRequest(url, method)) {
+      ecoJiraLog(`Skipping XHR (not GET or not Jira): ${method} ${url}`, 'debug');
       return originalXHRSend.apply(this, arguments);
     }
+    
+    ecoJiraLog(`Processing Jira XHR request: ${method} ${url}`, 'debug');
     
     const cacheKey = generateSimpleCacheKey(url, method);
     ecoJiraLog(`XHR request: ${method} ${url}`);
@@ -456,6 +466,7 @@
 
   // Initial log
   ecoJiraLog('Content script loaded and ready to intercept requests');
+  ecoJiraLog(`Current URL: ${window.location.href}`, 'info');
   
   // Listen for instance updates
   chrome.runtime.onMessage.addListener((message) => {

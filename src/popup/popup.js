@@ -121,8 +121,8 @@ async function updateExtensionIcon(type) {
 
 // Check if URL looks like a Jira instance
 function isPotentialJiraUrl(url) {
-  if (url.hostname.includes('atlassian.net')) return true;
-  if (url.hostname.includes('jira') || url.hostname === 'localhost') return true;
+  if (url.host.includes('atlassian.net')) return true;
+  if (url.host.includes('jira') || url.host.includes('localhost')) return true;
   if (url.pathname.includes('/jira') || url.pathname.includes('/jira/')) return true;
   return false;
 }
@@ -319,8 +319,8 @@ async function loadCurrentTabState() {
       const matchingInstance = instances.find(i => {
         try {
           const instanceUrl = new URL(i.baseUrl);
-          // Compare hostname WITHOUT port
-          return url.hostname.replace(/:\d+$/, '') === instanceUrl.hostname.replace(/:\d+$/, '');
+          // Compare full host (includes port)
+          return url.host === instanceUrl.host;
         } catch (e) {
           return false;
         }
@@ -383,7 +383,7 @@ activateBtn.addEventListener('click', function() {
   }
 
   const url = new URL(currentTabUrl);
-  const baseUrl = `${url.protocol}//${url.hostname}`;
+  const baseUrl = `${url.protocol}//${url.host}`;
   
   addLog(`Attempting to activate: ${baseUrl}`);
   addLog('Requesting permissions (must be direct user gesture)...');
