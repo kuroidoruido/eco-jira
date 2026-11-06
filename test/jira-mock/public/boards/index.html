@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tableaux - Mock Jira</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/css/reset.css">
+    <link rel="stylesheet" href="/css/styles.css">
+    <link rel="stylesheet" href="/css/boards.css">
+    <style>
+        /* Loading styles */
+        .loading-section {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 60px 20px;
+            min-height: 300px;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #0052CC;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin-right: 16px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .loading-text {
+            font-size: 16px;
+            color: #666;
+        }
+        .error-message {
+            color: #d23f31;
+            background: #ffebee;
+            padding: 20px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        
+        .boards-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        
+        .board-card {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            transition: all 0.2s ease;
+        }
+        
+        .board-card:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            border-color: #0052CC;
+            transform: translateY(-2px);
+        }
+        
+        .board-card.large {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        
+        .board-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        
+        .board-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 20px;
+            color: white;
+        }
+        
+        .board-icon.kanban { background: #0052CC; }
+        .board-icon.scrum { background: #36B37E; }
+        
+        .board-title h3 {
+            margin: 0 0 4px 0;
+            font-size: 18px;
+        }
+        
+        .board-title .board-type {
+            font-size: 13px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .board-stats {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 16px;
+        }
+        
+        .stat {
+            text-align: center;
+        }
+        
+        .stat-value {
+            display: block;
+            font-size: 24px;
+            font-weight: bold;
+            color: #0052CC;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .board-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+        
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 13px;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <header class="jira-header">
+        <div class="header-left">
+            <div class="logo">
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M16 2L28 6V14L16 18L4 14V6L16 2Z" fill="#0052CC"/>
+                    <path d="M16 10L24 14V22L16 26L8 22V14L16 10Z" fill="#0052CC"/>
+                    <path d="M16 18L24 22V30L16 34L8 30V22L16 18Z" fill="#0052CC"/>
+                </svg>
+            </div>
+            <nav class="main-nav">
+                <a href="/jira">Accueil</a>
+                <a href="/jira/boards" class="active">Tableaux</a>
+                <a href="#">Projets</a>
+                <a href="#">Problèmes</a>
+            </nav>
+        </div>
+        <div class="header-right">
+            <div class="search-box">
+                <input type="text" placeholder="Rechercher Jira..." id="boards-search">
+                <button id="boards-search-btn">🔍</button>
+            </div>
+            <button class="create-btn">Créer</button>
+            <div class="user-menu">
+                <span>👤 John Doe</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="jira-main">
+        <div class="page-header">
+            <h1>Tableaux</h1>
+            <div class="page-actions">
+                <button class="btn btn-primary">Créer un tableau</button>
+            </div>
+        </div>
+
+        <div id="boards-loading" class="loading-section">
+            <div class="spinner"></div>
+            <div class="loading-text">Chargement des tableaux depuis l'API Jira...</div>
+        </div>
+        
+        <div id="boards-list" class="boards-list" style="display: none;"></div>
+    </main>
+
+    <footer class="jira-footer">
+        <p>Mock Jira v1.0 | Pour tests eco-jira</p>
+    </footer>
+
+    <script src="/js/app.js"></script>
+    <script>
+        console.log('[Mock Jira] Loading boards list...');
+        
+        // ============================================================================
+        // Helper Functions
+        // ============================================================================
+        
+        // Get board type icon and color
+        function getBoardTypeInfo(type) {
+            const types = {
+                kanban: { icon: 'K', color: '#0052CC', label: 'Kanban' },
+                scrum: { icon: 'S', color: '#36B37E', label: 'Scrum' }
+            };
+            return types[type?.toLowerCase()] || types.kanban;
+        }
+        
+        // ============================================================================
+        // Fetch Boards from API
+        // ============================================================================
+        
+        async function fetchBoards() {
+            try {
+                console.log('[Mock Jira] Fetching boards from /rest/agile/1.0/board');
+                
+                // Fetch boards list
+                const response = await fetch('/rest/agile/1.0/board?maxResults=50');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log('[Mock Jira] Loaded boards:', data.values || data);
+                
+                // Also fetch server info to simulate additional Jira API calls
+                await fetch('/rest/api/2/serverInfo');
+                await fetch('/rest/api/2/project');
+                
+                const boards = data.values || data || [];
+                
+                // Fetch issue count for each board
+                for (const board of boards) {
+                    try {
+                        const issuesResponse = await fetch(`/rest/agile/1.0/board/${board.id}/issue?maxResults=1`);
+                        if (issuesResponse.ok) {
+                            const issuesData = await issuesResponse.json();
+                            board.issueCount = issuesData.total || 0;
+                        } else {
+                            board.issueCount = Math.floor(Math.random() * 50);
+                        }
+                    } catch (e) {
+                        board.issueCount = Math.floor(Math.random() * 50);
+                    }
+                }
+                
+                return boards;
+            } catch (error) {
+                console.error('[Mock Jira] Error fetching boards:', error);
+                
+                // Return mock boards as fallback
+                return [
+                    { id: 1, name: 'Tableau Kanban', type: 'kanban', issueCount: 30 },
+                    { id: 2, name: 'Tableau Sprint', type: 'scrum', issueCount: 25 },
+                    { id: 3, name: 'Backlog Produit', type: 'scrum', issueCount: 45 },
+                    { id: 4, name: 'Tableau d\'équipe', type: 'kanban', issueCount: 15 },
+                    { id: 5, name: 'Projet Alpha', type: 'kanban', issueCount: 60 }
+                ];
+            }
+        }
+        
+        // ============================================================================
+        // Fetch Board Issues for Stats
+        // ============================================================================
+        
+        async function fetchBoardStats(boardId) {
+            try {
+                const response = await fetch(`/rest/agile/1.0/board/${boardId}/issue?maxResults=100`);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    const issues = data.issues || [];
+                    
+                    const stats = {
+                        total: issues.length,
+                        inProgress: 0,
+                        done: 0
+                    };
+                    
+                    issues.forEach(issue => {
+                        const statusName = (issue.fields?.status?.name || issue.status?.name || '').toLowerCase();
+                        if (statusName === 'in progress' || statusName === 'in review') {
+                            stats.inProgress++;
+                        } else if (statusName === 'done' || statusName === 'closed' || statusName === 'resolved') {
+                            stats.done++;
+                        }
+                    });
+                    
+                    return stats;
+                }
+            } catch (error) {
+                console.error(`[Mock Jira] Error fetching stats for board ${boardId}:`, error);
+            }
+            
+            // Return random stats
+            return {
+                total: Math.floor(Math.random() * 50) + 10,
+                inProgress: Math.floor(Math.random() * 10),
+                done: Math.floor(Math.random() * 15)
+            };
+        }
+        
+        // ============================================================================
+        // Render Boards
+        // ============================================================================
+        
+        async function renderBoards(boards) {
+            const boardsList = document.getElementById('boards-list');
+            const loading = document.getElementById('boards-loading');
+            
+            if (!boards || boards.length === 0) {
+                boardsList.innerHTML = '<div class="empty-state">Aucun tableau trouvé</div>';
+                loading.style.display = 'none';
+                boardsList.style.display = 'grid';
+                return;
+            }
+            
+            boardsList.innerHTML = '';
+            
+            // Fetch stats for all boards concurrently
+            const statsPromises = boards.map(board => fetchBoardStats(board.id));
+            const allStats = await Promise.all(statsPromises);
+            
+            boards.forEach((board, index) => {
+                const boardCard = document.createElement('div');
+                boardCard.className = 'board-card large';
+                
+                const typeInfo = getBoardTypeInfo(board.type);
+                const stats = allStats[index];
+                
+                boardCard.innerHTML = `
+                    <div class="board-header">
+                        <div class="board-icon ${board.type || 'kanban'}" style="background: ${typeInfo.color};">${typeInfo.icon}</div>
+                        <div class="board-title">
+                            <h3>${board.name || 'Tableau sans nom'}</h3>
+                            <span class="board-type">${typeInfo.label}</span>
+                        </div>
+                    </div>
+                    <div class="board-stats">
+                        <div class="stat">
+                            <span class="stat-value">${stats.total || board.issueCount || 0}</span>
+                            <span class="stat-label">Problèmes</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-value">${stats.inProgress || 0}</span>
+                            <span class="stat-label">En cours</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-value">${stats.done || 0}</span>
+                            <span class="stat-label">Terminé</span>
+                        </div>
+                    </div>
+                    <div class="board-actions">
+                        <a href="/jira/board/${board.id}" class="btn btn-sm btn-secondary">Ouvrir</a>
+                    </div>
+                `;
+                
+                boardsList.appendChild(boardCard);
+            });
+            
+            loading.style.display = 'none';
+            boardsList.style.display = 'grid';
+        }
+        
+        // ============================================================================
+        // Error Handling
+        // ============================================================================
+        
+        function showError(error) {
+            const loading = document.getElementById('boards-loading');
+            loading.innerHTML = `
+                <div class="error-message">
+                    <strong>Erreur de chargement :</strong>
+                    <p>${error.message || 'Impossible de charger les tableaux'}</p>
+                    <p style="margin-top: 16px;"><button onclick="location.reload()" style="padding: 8px 16px; background: #0052CC; color: white; border: none; border-radius: 4px; cursor: pointer;">Recharger</button></p>
+                </div>
+            `;
+        }
+        
+        // ============================================================================
+        // Search Functionality
+        // ============================================================================
+        
+        async function performSearch(query) {
+            if (!query || query.trim().length < 2) {
+                // Reset - reload boards
+                const boards = await fetchBoards();
+                renderBoards(boards);
+                return;
+            }
+            
+            try {
+                console.log(`[Mock Jira] Searching for boards: ${query}`);
+                
+                // Filter boards locally
+                const boards = await fetchBoards();
+                const filteredBoards = boards.filter(board => 
+                    board.name.toLowerCase().includes(query.toLowerCase())
+                );
+                
+                renderBoards(filteredBoards);
+            } catch (error) {
+                console.error('[Mock Jira] Search error:', error);
+            }
+        }
+        
+        // ============================================================================
+        // Initialize
+        // ============================================================================
+        
+        async function init() {
+            try {
+                console.log('[Mock Jira] Initializing boards list...');
+                
+                const boards = await fetchBoards();
+                await renderBoards(boards);
+                
+                // Setup search
+                const searchInput = document.getElementById('boards-search');
+                const searchBtn = document.getElementById('boards-search-btn');
+                
+                let searchTimeout;
+                searchInput.addEventListener('input', (e) => {
+                    clearTimeout(searchTimeout);
+                    searchTimeout = setTimeout(() => {
+                        performSearch(e.target.value);
+                    }, 500);
+                });
+                
+                searchBtn.addEventListener('click', () => {
+                    performSearch(searchInput.value);
+                });
+                
+                searchInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        performSearch(searchInput.value);
+                    }
+                });
+                
+            } catch (error) {
+                console.error('[Mock Jira] Initialization error:', error);
+                showError(error);
+            }
+        }
+        
+        // Start
+        init();
+    </script>
+</body>
+</html>

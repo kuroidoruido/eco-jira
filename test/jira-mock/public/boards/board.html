@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tableau - Mock Jira</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/css/reset.css">
+    <link rel="stylesheet" href="/css/styles.css">
+    <link rel="stylesheet" href="/css/boards.css">
+    <style>
+        /* Side panel styles */
+        .side-panel {
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: 400px;
+            height: 100%;
+            background: white;
+            box-shadow: -2px 0 10px rgba(0, 0, 0, 0.2);
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+            z-index: 1000;
+            overflow-y: auto;
+        }
+        
+        .side-panel.open {
+            transform: translateX(0);
+        }
+        
+        .side-panel-header {
+            padding: 16px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .side-panel-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #666;
+        }
+        
+        .side-panel-content {
+            padding: 16px;
+        }
+        
+        .issue-detail h2 {
+            margin: 0 0 16px 0;
+            font-size: 18px;
+        }
+        
+        .issue-detail-section {
+            margin-bottom: 16px;
+        }
+        
+        .issue-detail-section h3 {
+            font-size: 14px;
+            color: #666;
+            margin: 0 0 8px 0;
+        }
+        
+        .issue-detail-section p {
+            margin: 0;
+        }
+        
+        .panel-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 999;
+            display: none;
+        }
+        
+        .panel-overlay.open {
+            display: block;
+        }
+        
+        /* Board column styles */
+        .board-container {
+            display: flex;
+            gap: 16px;
+            overflow-x: auto;
+            padding-bottom: 20px;
+            min-height: 400px;
+        }
+        
+        .board-column {
+            min-width: 280px;
+            background: #f5f5f5;
+            border-radius: 4px;
+            padding: 12px;
+            flex-shrink: 0;
+        }
+        
+        .column-header {
+            font-weight: bold;
+            margin-bottom: 12px;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .column-header .count {
+            background: #e0e0e0;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+        
+        .board-issues {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .board-issue-card {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .board-issue-card:hover {
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            border-color: #0052CC;
+        }
+        
+        .board-issue-card .issue-key {
+            color: #0052CC;
+            font-weight: bold;
+            font-size: 13px;
+        }
+        
+        .board-issue-card .issue-summary {
+            color: #333;
+            font-size: 14px;
+            margin: 4px 0 8px 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .board-issue-card .issue-meta {
+            display: flex;
+            gap: 8px;
+            font-size: 12px;
+            flex-wrap: wrap;
+        }
+        
+        .issue-type-badge {
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+        
+        .issue-type-badge.bug { background: #FF5630; color: white; }
+        .issue-type-badge.story { background: #36B37E; color: white; }
+        .issue-type-badge.task { background: #00875A; color: white; }
+        .issue-type-badge.subtask { background: #428BCA; color: white; }
+        .issue-type-badge.epic { background: #9558B2; color: white; }
+        
+        .issue-status-badge {
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+        }
+        
+        .issue-status-badge.to-do { background: #E9F2FF; color: #0052CC; }
+        .issue-status-badge.in-progress { background: #FFF1E5; color: #FF8F00; }
+        .issue-status-badge.in-review { background: #F3E9FF; color: #652D90; }
+        .issue-status-badge.done { background: #E3FCEF; color: #36B37E; }
+        .issue-status-badge.blocked { background: #FFE9E9; color: #D23F31; }
+        .issue-status-badge.open { background: #E9F2FF; color: #0052CC; }
+        .issue-status-badge.closed { background: #E3FCEF; color: #36B37E; }
+        .issue-status-badge.resolved { background: #E3FCEF; color: #36B37E; }
+        
+        /* Loading spinner */
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 40px;
+            min-height: 300px;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #0052CC;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .error-message {
+            color: #d23f31;
+            background: #ffebee;
+            padding: 20px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        
+        /* Drop indicator for drag and drop */
+        .drop-indicator {
+            height: 2px;
+            background: #0052CC;
+            margin: 4px 0;
+            display: none;
+        }
+        
+        .board-issue-card.dragging {
+            opacity: 0.5;
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .board-column {
+                min-width: 240px;
+            }
+            
+            .side-panel {
+                width: 100%;
+                z-index: 1001;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="jira-header">
+        <div class="header-left">
+            <div class="logo">
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M16 2L28 6V14L16 18L4 14V6L16 2Z" fill="#0052CC"/>
+                    <path d="M16 10L24 14V22L16 26L8 22V14L16 10Z" fill="#0052CC"/>
+                    <path d="M16 18L24 22V30L16 34L8 30V22L16 18Z" fill="#0052CC"/>
+                </svg>
+            </div>
+            <nav class="main-nav">
+                <a href="/jira">Accueil</a>
+                <a href="/jira/boards">Tableaux</a>
+                <a href="#">Projets</a>
+            </nav>
+        </div>
+        <div class="header-right">
+            <div class="search-box">
+                <input type="text" placeholder="Rechercher dans le tableau..." id="board-search">
+                <button id="board-search-btn">🔍</button>
+            </div>
+            <button class="create-btn">Créer</button>
+            <div class="user-menu">
+                <span>👤 John Doe</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="jira-main">
+        <div class="page-header">
+            <div class="page-breadcrumb">
+                <a href="/jira/boards">Tableaux</a>
+                <span>></span>
+                <span id="board-name">Chargement...</span>
+            </div>
+            <div class="page-actions">
+                <button class="btn btn-secondary">Configurer</button>
+                <button class="btn btn-primary">Créer un problème</button>
+            </div>
+        </div>
+
+        <div id="board-container">
+            <div class="loading">
+                <div class="spinner"></div>
+                <p>Chargement du tableau depuis l'API Jira...</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Side Panel -->
+    <div class="panel-overlay" id="panel-overlay"></div>
+    <div class="side-panel" id="side-panel">
+        <div class="side-panel-header">
+            <h2 id="panel-title">Détails du problème</h2>
+            <button class="side-panel-close" id="panel-close">×</button>
+        </div>
+        <div class="side-panel-content" id="panel-content">
+            <div class="loading" style="padding: 20px;">
+                <div class="spinner" style="width: 30px; height: 30px; border-width: 3px;"></div>
+                <p style="margin-left: 10px;">Chargement...</p>
+            </div>
+        </div>
+    </div>
+
+    <footer class="jira-footer">
+        <p>Mock Jira v1.0 | Pour tests eco-jira | <a href="https://github.com">GitHub</a></p>
+    </footer>
+
+    <script src="/js/app.js"></script>
+    <script>
+        // Get board ID from URL
+        const boardId = window.location.pathname.split('/').pop();
+        
+        // Users for display
+        const users = ['John Doe', 'Jane Smith', 'Bob Johnson', 'Alice Brown', 'Charlie Wilson', 'Diana Prince', 'Clark Kent'];
+        
+        console.log(`[Mock Jira] Loading board: ${boardId}`);
+        
+        // ============================================================================
+        // Helper Functions
+        // ============================================================================
+        
+        // Format date for display
+        function formatDate(dateString) {
+            if (!dateString) return 'Inconnu';
+            try {
+                const date = new Date(dateString);
+                const now = new Date();
+                const diffDays = Math.floor((now - date) / 86400000);
+                
+                if (diffDays === 0) return 'Aujourd\'hui';
+                if (diffDays === 1) return 'Hier';
+                if (diffDays < 7) return `Il y a ${diffDays} jours`;
+                return date.toLocaleDateString('fr-FR');
+            } catch (e) {
+                return dateString;
+            }
+        }
+        
+        // Get status class from status name
+        function getStatusClass(statusName) {
+            if (!statusName) return 'to-do';
+            const statusMap = {
+                'To Do': 'to-do',
+                'In Progress': 'in-progress',
+                'In Review': 'in-review',
+                'Done': 'done',
+                'Blocked': 'blocked',
+                'Open': 'to-do',
+                'Closed': 'done',
+                'Resolved': 'done'
+            };
+            return statusMap[statusName] || statusName.toLowerCase().replace(' ', '-');
+        }
+        
+        // Extract text from Jira description format
+        function extractTextFromDescription(desc) {
+            if (!desc) return 'Aucune description';
+            
+            if (typeof desc === 'string') return desc;
+            
+            if (desc.content && Array.isArray(desc.content)) {
+                return desc.content.map(item => {
+                    if (item.content && Array.isArray(item.content)) {
+                        return item.content.map(c => c.text || '').join('');
+                    }
+                    return item.text || '';
+                }).join('\n');
+            }
+            
+            return 'Aucune description';
+        }
+        
+        // Get issue type badge class
+        function getTypeClass(typeName) {
+            if (!typeName) return 'task';
+            return typeName.toLowerCase();
+        }
+        
+        // ============================================================================
+        // Fetch Board Data from API
+        // ============================================================================
+        
+        async function fetchBoardData() {
+            try {
+                console.log(`[Mock Jira] Fetching board ${boardId} from /rest/agile/1.0/board/${boardId}`);
+                
+                // Fetch board info
+                const boardResponse = await fetch(`/rest/agile/1.0/board/${boardId}`);
+                
+                if (!boardResponse.ok) {
+                    throw new Error(`HTTP ${boardResponse.status}: ${boardResponse.statusText}`);
+                }
+                
+                const boardData = await boardResponse.json();
+                console.log('[Mock Jira] Loaded board data:', boardData);
+                
+                // Fetch board issues from Agile API
+                console.log(`[Mock Jira] Fetching board issues from /rest/agile/1.0/board/${boardId}/issue`);
+                const issuesResponse = await fetch(`/rest/agile/1.0/board/${boardId}/issue?maxResults=50`);
+                
+                if (!issuesResponse.ok) {
+                    // Fallback to search API
+                    console.log(`[Mock Jira] Fallback to search API`);
+                    const searchResponse = await fetch('/rest/api/2/search?jql=project=JIRA ORDER BY created DESC&maxResults=50');
+                    if (searchResponse.ok) {
+                        const searchData = await searchResponse.json();
+                        boardData.issues = searchData.issues || [];
+                    }
+                } else {
+                    const issuesData = await issuesResponse.json();
+                    boardData.issues = issuesData.issues || [];
+                }
+                
+                // Also fetch server info to simulate additional Jira API calls
+                await fetch('/rest/api/2/serverInfo');
+                await fetch('/rest/api/2/field');
+                await fetch('/rest/api/2/issuetype');
+                await fetch('/rest/api/2/status');
+                await fetch('/rest/api/2/priority');
+                
+                console.log(`[Mock Jira] Loaded ${boardData.issues?.length || 0} issues for board`);
+                
+                return boardData;
+            } catch (error) {
+                console.error('[Mock Jira] Error fetching board data:', error);
+                
+                // Return mock data as fallback
+                return {
+                    id: boardId,
+                    name: boardId === '1' ? 'Tableau Kanban' : boardId === '2' ? 'Tableau Sprint' : `Tableau ${boardId}`,
+                    type: boardId === '2' || boardId === '3' ? 'scrum' : 'kanban',
+                    columns: boardId === '1' ? [
+                        { id: 100, name: 'To Do', statuses: [{ id: '10000', name: 'To Do' }] },
+                        { id: 101, name: 'In Progress', statuses: [{ id: '10001', name: 'In Progress' }] },
+                        { id: 102, name: 'In Review', statuses: [{ id: '10003', name: 'In Review' }] },
+                        { id: 103, name: 'Blocked', statuses: [{ id: '10004', name: 'Blocked' }] },
+                        { id: 104, name: 'Done', statuses: [{ id: '10002', name: 'Done' }] }
+                    ] : boardId === '2' ? [
+                        { id: 200, name: 'To Do', statuses: [{ id: '10000', name: 'To Do' }] },
+                        { id: 201, name: 'In Progress', statuses: [{ id: '10001', name: 'In Progress' }] },
+                        { id: 202, name: 'Done', statuses: [{ id: '10002', name: 'Done' }] }
+                    ] : [
+                        { id: 300, name: 'Backlog', statuses: [{ id: '10000', name: 'To Do' }] },
+                        { id: 301, name: 'In Progress', statuses: [{ id: '10001', name: 'In Progress' }] },
+                        { id: 302, name: 'Done', statuses: [{ id: '10002', name: 'Done' }] }
+                    ],
+                    issues: []
+                };
+            }
+        }
+        
+        // ============================================================================
+        // Fetch Issue Details
+        // ============================================================================
+        
+        async function fetchIssueDetails(issueKey) {
+            try {
+                console.log(`[Mock Jira] Fetching issue: ${issueKey}`);
+                
+                const response = await fetch(`/rest/api/2/issue/${issueKey}`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const issue = await response.json();
+                console.log(`[Mock Jira] Loaded issue: ${issueKey}`);
+                
+                return issue;
+            } catch (error) {
+                console.error(`[Mock Jira] Error fetching issue ${issueKey}:`, error);
+                
+                // Return mock issue data
+                const issueNumber = parseInt(issueKey.replace('JIRA-', '') || '1');
+                const statuses = ['To Do', 'In Progress', 'In Review', 'Done', 'Blocked'];
+                const types = ['Bug', 'Story', 'Task', 'Epic'];
+                const priorities = ['Highest', 'High', 'Medium', 'Low', 'Lowest'];
+                
+                return {
+                    expand: 'renderedFields,names,schema,operations,editmeta,changelog,versionedRepresentations',
+                    id: (10000 + issueNumber).toString(),
+                    self: `http://localhost:3000/rest/api/2/issue/${10000 + issueNumber}`,
+                    key: issueKey,
+                    fields: {
+                        summary: `Issue ${issueNumber} - Test pour eco-jira`,
+                        description: {
+                            type: 'doc',
+                            version: 1,
+                            content: [{
+                                type: 'paragraph',
+                                content: [{
+                                    type: 'text',
+                                    text: `Description du problème ${issueKey}. Cette description est générée côté client car l'API a échoué.`
+                                }]
+                            }]
+                        },
+                        status: { name: statuses[Math.floor(Math.random() * statuses.length)], id: '10000' },
+                        priority: { name: priorities[Math.floor(Math.random() * priorities.length)], id: '10000' },
+                        issuetype: { name: types[Math.floor(Math.random() * types.length)], id: '10000' },
+                        assignee: { displayName: users[Math.floor(Math.random() * users.length)] },
+                        reporter: { displayName: users[Math.floor(Math.random() * users.length)] },
+                        created: new Date().toISOString(),
+                        updated: new Date().toISOString()
+                    }
+                };
+            }
+        }
+        
+        // ============================================================================
+        // Render Board
+        // ============================================================================
+        
+        function renderBoard(boardData) {
+            // Ensure users is defined
+            if (typeof users === 'undefined') {
+                console.warn('[Mock Jira] users not defined in board, using fallback');
+                window.users = ['John Doe', 'Jane Smith', 'Bob Johnson', 'Alice Brown', 'Charlie Wilson', 'Diana Prince', 'Clark Kent'];
+            }
+            const boardContainer = document.getElementById('board-container');
+            
+            // Update page title
+            document.getElementById('board-name').textContent = boardData.name || 'Tableau';
+            document.title = `${boardData.name || 'Tableau'} - Mock Jira`;
+            
+            // Clear loading
+            boardContainer.innerHTML = '';
+            
+            // Group issues by column
+            const columns = boardData.columns || [];
+            const issues = boardData.issues || [];
+            
+            // If we have issues but no columns, create default columns based on statuses
+            if (issues.length > 0 && columns.length === 0) {
+                const allStatuses = [...new Set(issues.map(i => i.fields?.status?.name || i.status?.name || 'Unknown'))];
+                columns.push(...allStatuses.map((status, idx) => ({
+                    id: 100 + idx,
+                    name: status,
+                    statuses: [{ id: (10000 + idx).toString(), name: status }]
+                })));
+            }
+            
+            // Create columns
+            columns.forEach(column => {
+                const columnEl = document.createElement('div');
+                columnEl.className = 'board-column';
+                columnEl.dataset.columnId = column.id;
+                
+                // Get issues for this column
+                const columnStatusIds = column.statuses ? column.statuses.map(s => s.id) : [];
+                const columnStatusNames = column.statuses ? column.statuses.map(s => s.name.toLowerCase()) : [];
+                
+                const columnIssues = issues.filter(issue => {
+                    // Check by status ID
+                    const issueStatusId = issue.fields?.status?.id || issue.status?.id;
+                    if (issueStatusId && columnStatusIds.includes(issueStatusId)) return true;
+                    
+                    // Check by status name
+                    const issueStatusName = (issue.fields?.status?.name || issue.status?.name || '').toLowerCase();
+                    if (columnStatusNames.includes(issueStatusName)) return true;
+                    
+                    // If column name matches status name
+                    if ((issue.fields?.status?.name || issue.status?.name || '').toLowerCase() === column.name.toLowerCase()) return true;
+                    
+                    return false;
+                });
+                
+                // Sort issues by position if available, otherwise by key
+                columnIssues.sort((a, b) => {
+                    const aKey = a.key || a.id || '';
+                    const bKey = b.key || b.id || '';
+                    return aKey.localeCompare(bKey);
+                });
+                
+                columnEl.innerHTML = `
+                    <div class="column-header">
+                        <span>${column.name}</span>
+                        <span class="count">${columnIssues.length}</span>
+                    </div>
+                    <div class="board-issues" data-column-id="${column.id}"></div>
+                `;
+                
+                boardContainer.appendChild(columnEl);
+                
+                // Add issues to column
+                const issuesContainer = columnEl.querySelector('.board-issues');
+                
+                if (columnIssues.length === 0) {
+                    // Add empty state
+                    const emptyState = document.createElement('div');
+                    emptyState.className = 'empty-state';
+                    emptyState.style.padding = '20px';
+                    emptyState.style.textAlign = 'center';
+                    emptyState.style.color = '#999';
+                    emptyState.style.fontSize = '13px';
+                    emptyState.textContent = 'Aucun problème';
+                    issuesContainer.appendChild(emptyState);
+                } else {
+                    columnIssues.forEach(issue => {
+                        const issueCard = createIssueCard(issue);
+                        issuesContainer.appendChild(issueCard);
+                    });
+                }
+            });
+            
+            // Add empty columns if no issues matched
+            if (issues.length === 0) {
+                const emptyMessage = document.createElement('div');
+                emptyMessage.style.textAlign = 'center';
+                emptyMessage.style.padding = '40px';
+                emptyMessage.style.color = '#999';
+                emptyMessage.innerHTML = '<p>Aucun problème trouvé pour ce tableau</p><p style="margin-top: 8px; font-size: 13px;">Essayez de recharger ou vérifiez la connexion</p>';
+                boardContainer.appendChild(emptyMessage);
+            }
+        }
+        
+        // ============================================================================
+        // Create Issue Card
+        // ============================================================================
+        
+        function createIssueCard(issue) {
+            const issueCard = document.createElement('div');
+            issueCard.className = 'board-issue-card';
+            
+            // Extract data from issue
+            const key = issue.key || issue.id || 'JIRA-?';
+            const summary = issue.fields?.summary || issue.summary || 'Sans titre';
+            const issueType = (issue.fields?.issuetype?.name || issue.type || 'Task').toLowerCase();
+            const statusName = issue.fields?.status?.name || issue.status?.name || 'To Do';
+            const assignee = issue.fields?.assignee?.displayName || issue.assignee || null;
+            const priority = issue.fields?.priority?.name || null;
+            
+            // Truncate summary if too long
+            const maxSummaryLength = 60;
+            const displaySummary = summary.length > maxSummaryLength 
+                ? summary.substring(0, maxSummaryLength) + '...' 
+                : summary;
+            
+            issueCard.dataset.issueKey = key;
+            issueCard.innerHTML = `
+                <div class="issue-key">${key}</div>
+                <div class="issue-summary" title="${summary}">${displaySummary}</div>
+                <div class="issue-meta">
+                    <span class="issue-type-badge ${issueType}">${issueType.toUpperCase()}</span>
+                    <span class="issue-status-badge ${getStatusClass(statusName)}">${statusName}</span>
+                    ${priority ? `<span class="issue-priority-badge" style="background: ${getPriorityColor(priority)}; color: white; padding: 2px 6px; border-radius: 3px; font-size: 11px;">${priority}</span>` : ''}
+                    ${assignee ? `<span class="issue-assignee" style="font-size: 11px; color: #666;" title="Assigné à ${assignee}">👤 ${assignee}</span>` : ''}
+                </div>
+            `;
+            
+            // Add click handler to fetch issue details
+            issueCard.addEventListener('click', async () => {
+                const issueDetails = await fetchIssueDetails(key);
+                showIssueDetail(issueDetails);
+            });
+            
+            return issueCard;
+        }
+        
+        // ============================================================================
+        // Get priority color
+        // ============================================================================
+        
+        function getPriorityColor(priorityName) {
+            if (!priorityName) return '#999';
+            const priorityColors = {
+                'Highest': '#D23F31',
+                'High': '#FF8F00',
+                'Medium': '#FFC400',
+                'Low': '#428BCA',
+                'Lowest': '#808080'
+            };
+            return priorityColors[priorityName] || '#999';
+        }
+        
+        // ============================================================================
+        // Show Issue Detail in Side Panel
+        // ============================================================================
+        
+        function showIssueDetail(issue) {
+            const panel = document.getElementById('side-panel');
+            const overlay = document.getElementById('panel-overlay');
+            const panelTitle = document.getElementById('panel-title');
+            const panelContent = document.getElementById('panel-content');
+            
+            const fields = issue.fields || {};
+            const key = issue.key || issue.id || 'JIRA-?';
+            const summary = fields.summary || issue.summary || 'Sans titre';
+            const type = fields.issuetype?.name || issue.type || 'Task';
+            const status = fields.status?.name || issue.status?.name || 'To Do';
+            const assignee = fields.assignee?.displayName || issue.assignee || 'Non assigné';
+            const reporter = fields.reporter?.displayName || issue.reporter || 'Non assigné';
+            const priority = fields.priority?.name || null;
+            const description = extractTextFromDescription(fields.description);
+            const created = fields.created || null;
+            const updated = fields.updated || null;
+            
+            // Set panel content
+            panelTitle.textContent = `${key}: ${summary}`;
+            panelContent.innerHTML = `
+                <div class="issue-detail">
+                    <div class="issue-detail-section">
+                        <h3>Type</h3>
+                        <p><span class="issue-type-badge ${getTypeClass(type)}">${type.toUpperCase()}</span></p>
+                    </div>
+                    <div class="issue-detail-section">
+                        <h3>Statut</h3>
+                        <p><span class="issue-status-badge ${getStatusClass(status)}">${status}</span></p>
+                    </div>
+                    ${priority ? `
+                    <div class="issue-detail-section">
+                        <h3>Priorité</h3>
+                        <p><span style="background: ${getPriorityColor(priority)}; color: white; padding: 4px 8px; border-radius: 3px; font-size: 12px;">${priority}</span></p>
+                    </div>
+                    ` : ''}
+                    <div class="issue-detail-section">
+                        <h3>Assigné à</h3>
+                        <p>${assignee}</p>
+                    </div>
+                    <div class="issue-detail-section">
+                        <h3>Reporter</h3>
+                        <p>${reporter}</p>
+                    </div>
+                    ${created ? `
+                    <div class="issue-detail-section">
+                        <h3>Créé</h3>
+                        <p>${formatDate(created)}</p>
+                    </div>
+                    ` : ''}
+                    ${updated ? `
+                    <div class="issue-detail-section">
+                        <h3>Mis à jour</h3>
+                        <p>${formatDate(updated)}</p>
+                    </div>
+                    ` : ''}
+                    <div class="issue-detail-section">
+                        <h3>Description</h3>
+                        <p style="white-space: pre-wrap;">${description}</p>
+                    </div>
+                </div>
+            `;
+            
+            // Show panel
+            panel.classList.add('open');
+            overlay.classList.add('open');
+        }
+        
+        // ============================================================================
+        // Close Panel
+        // ============================================================================
+        
+        function closePanel() {
+            document.getElementById('side-panel').classList.remove('open');
+            document.getElementById('panel-overlay').classList.remove('open');
+        }
+        
+        // ============================================================================
+        // Error Handling
+        // ============================================================================
+        
+        function showError(error) {
+            const boardContainer = document.getElementById('board-container');
+            boardContainer.innerHTML = `
+                <div class="error-message">
+                    <strong>Erreur de chargement :</strong>
+                    <p>${error.message || 'Impossible de charger le tableau'}</p>
+                    <p style="margin-top: 16px;"><button onclick="location.reload()" style="padding: 8px 16px; background: #0052CC; color: white; border: none; border-radius: 4px; cursor: pointer;">Recharger le tableau</button></p>
+                </div>
+            `;
+        }
+        
+        // ============================================================================
+        // Search Functionality
+        // ============================================================================
+        
+        let allIssues = [];
+        
+        async function performSearch(query) {
+            if (!query || query.trim().length < 2) {
+                // Reset - show all issues
+                const boardData = await fetchBoardData();
+                renderBoard(boardData);
+                return;
+            }
+            
+            try {
+                console.log(`[Mock Jira] Searching board for: ${query}`);
+                
+                // Use JQL search
+                const response = await fetch(`/rest/api/2/search?jql=project=JIRA AND text ~ "${encodeURIComponent(query)}" ORDER BY created DESC&maxResults=50`);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    const boardData = {
+                        ...await fetchBoardData(),
+                        issues: data.issues || []
+                    };
+                    renderBoard(boardData);
+                }
+            } catch (error) {
+                console.error('[Mock Jira] Search error:', error);
+                // Filter issues locally
+                const filteredIssues = allIssues.filter(issue => {
+                    const summary = issue.fields?.summary?.toLowerCase() || '';
+                    const key = (issue.key || '').toLowerCase();
+                    const description = extractTextFromDescription(issue.fields?.description).toLowerCase();
+                    const searchQuery = query.toLowerCase();
+                    
+                    return summary.includes(searchQuery) || 
+                           key.includes(searchQuery) || 
+                           description.includes(searchQuery);
+                });
+                
+                const boardData = {
+                    ...await fetchBoardData(),
+                    issues: filteredIssues
+                };
+                renderBoard(boardData);
+            }
+        }
+        
+        // ============================================================================
+        // Initialize
+        // ============================================================================
+        
+        async function init() {
+            try {
+                console.log(`[Mock Jira] Initializing board ${boardId}...`);
+                
+                const boardData = await fetchBoardData();
+                allIssues = boardData.issues || [];
+                
+                renderBoard(boardData);
+                
+                // Setup search
+                const searchInput = document.getElementById('board-search');
+                const searchBtn = document.getElementById('board-search-btn');
+                
+                let searchTimeout;
+                searchInput.addEventListener('input', (e) => {
+                    clearTimeout(searchTimeout);
+                    searchTimeout = setTimeout(() => {
+                        performSearch(e.target.value);
+                    }, 500);
+                });
+                
+                searchBtn.addEventListener('click', () => {
+                    performSearch(searchInput.value);
+                });
+                
+                searchInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        performSearch(searchInput.value);
+                    }
+                });
+                
+                // Setup panel close handlers
+                document.getElementById('panel-close').addEventListener('click', closePanel);
+                document.getElementById('panel-overlay').addEventListener('click', closePanel);
+                
+                // Close panel on Escape key
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') {
+                        closePanel();
+                    }
+                });
+                
+            } catch (error) {
+                console.error('[Mock Jira] Initialization error:', error);
+                showError(error);
+            }
+        }
+        
+        // Start
+        init();
+    </script>
+</body>
+</html>

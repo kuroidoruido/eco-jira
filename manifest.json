@@ -33,7 +33,7 @@
     "activeTab",
     "tabs"
   ],
-  "host_permissions": [],
+  "host_permissions": ["<all_urls>"],
   "options_ui": {
     "page": "src/popup/popup.html",
     "open_in_tab": false

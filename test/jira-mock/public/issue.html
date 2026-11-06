@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Problème - Mock Jira</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/css/reset.css">
+    <link rel="stylesheet" href="/css/styles.css">
+    <link rel="stylesheet" href="/css/issue.css">
+    <style>
+        /* Loading styles */
+        .loading-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 60px 20px;
+            min-height: 400px;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #0052CC;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin-right: 16px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .loading-text {
+            font-size: 16px;
+            color: #666;
+        }
+        .error-message {
+            color: #d23f31;
+            background: #ffebee;
+            padding: 16px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <header class="jira-header">
+        <div class="header-left">
+            <div class="logo">
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M16 2L28 6V14L16 18L4 14V6L16 2Z" fill="#0052CC"/>
+                    <path d="M16 10L24 14V22L16 26L8 22V14L16 10Z" fill="#0052CC"/>
+                    <path d="M16 18L24 22V30L16 34L8 30V22L16 18Z" fill="#0052CC"/>
+                </svg>
+            </div>
+            <nav class="main-nav">
+                <a href="/jira">Accueil</a>
+                <a href="/jira/boards">Tableaux</a>
+                <a href="#">Projets</a>
+            </nav>
+        </div>
+        <div class="header-right">
+            <div class="search-box">
+                <input type="text" placeholder="Rechercher Jira...">
+                <button>🔍</button>
+            </div>
+            <button class="create-btn">Créer</button>
+            <div class="user-menu">
+                <span>👤 John Doe</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="jira-main">
+        <div class="page-header" id="page-header">
+            <div class="page-breadcrumb">
+                <a href="/jira/boards">Tableaux</a>
+                <span>></span>
+                <a href="/jira/board/1" id="board-link">Tableau Kanban</a>
+                <span>></span>
+                <span id="issue-key">Chargement...</span>
+            </div>
+            <div class="page-actions">
+                <button class="btn btn-secondary">Éditer</button>
+                <button class="btn btn-secondary">Commenter</button>
+                <button class="btn btn-primary">Transitions</button>
+            </div>
+        </div>
+
+        <div id="loading-container" class="loading-container">
+            <div class="spinner"></div>
+            <div class="loading-text">Chargement du problème...</div>
+        </div>
+
+        <div id="issue-container" class="issue-container" style="display: none;">
+            <div class="issue-header">
+                <div class="issue-key-status">
+                    <span class="issue-key" id="issue-key-display"></span>
+                    <span class="issue-type-badge" id="issue-type-badge"></span>
+                    <span class="issue-status-badge" id="issue-status-badge"></span>
+                </div>
+                <h1 id="issue-summary"></h1>
+            </div>
+
+            <div class="issue-meta" id="issue-meta">
+                <div class="meta-item">
+                    <span class="meta-label">Assigné à:</span>
+                    <span class="meta-value" id="assignee"></span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Reporter:</span>
+                    <span class="meta-value" id="reporter"></span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Priorité:</span>
+                    <span class="meta-value" id="priority"></span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Créé:</span>
+                    <span class="meta-value" id="created"></span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Mis à jour:</span>
+                    <span class="meta-value" id="updated"></span>
+                </div>
+            </div>
+
+            <div class="issue-description">
+                <h2>Description</h2>
+                <div class="description-content" id="description-content">
+                </div>
+            </div>
+
+            <div class="issue-comments">
+                <h2>Commentaires</h2>
+                <div id="comments-container"></div>
+            </div>
+
+            <div class="issue-activity">
+                <h2>Activité</h2>
+                <div id="activity-container"></div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="jira-footer">
+        <p>Mock Jira v1.0 | Pour tests eco-jira</p>
+    </footer>
+
+    <script src="/js/app.js"></script>
+    <script>
+        // Users for display
+        const users = ['John Doe', 'Jane Smith', 'Bob Johnson', 'Alice Brown', 'Charlie Wilson', 'Diana Prince', 'Clark Kent'];
+        
+        // Get issue key from URL
+        const issueKey = window.location.pathname.split('/').pop();
+        
+        // Map of board IDs that might contain this issue
+        const boardIdFromPath = window.location.pathname.split('/').find(seg => seg === 'board' || /^\d+$/.test(seg));
+        const boardIndex = window.location.pathname.split('/').indexOf('board');
+        const boardId = boardIndex >= 0 && window.location.pathname.split('/')[boardIndex + 1];
+        
+        console.log(`[Mock Jira] Loading issue: ${issueKey}, from board: ${boardId}`);
+        
+        // Format date for display
+        function formatDate(dateString) {
+            if (!dateString) return 'Inconnu';
+            try {
+                const date = new Date(dateString);
+                return date.toLocaleDateString('fr-FR', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric'
+                });
+            } catch (e) {
+                return dateString;
+            }
+        }
+        
+        // Get status class from status name
+        function getStatusClass(statusName) {
+            if (!statusName) return '';
+            const statusMap = {
+                'To Do': 'to-do',
+                'In Progress': 'in-progress',
+                'In Review': 'in-review',
+                'Done': 'done',
+                'Blocked': 'blocked',
+                'Open': 'to-do',
+                'Closed': 'done',
+                'Resolved': 'done'
+            };
+            return statusMap[statusName] || statusName.toLowerCase().replace(' ', '-');
+        }
+        
+        // Get priority class from priority name
+        function getPriorityClass(priorityName) {
+            if (!priorityName) return '';
+            const priorityMap = {
+                'Highest': 'priority-highest',
+                'High': 'priority-high',
+                'Medium': 'priority-medium',
+                'Low': 'priority-low',
+                'Lowest': 'priority-lowest'
+            };
+            return priorityMap[priorityName] || 'priority-medium';
+        }
+        
+        // Extract text from Jira description format
+        function extractTextFromDescription(desc) {
+            if (!desc) return 'Aucune description';
+            
+            if (typeof desc === 'string') return desc;
+            
+            // Handle Jira ADF (Atlassian Document Format)
+            if (desc.content && Array.isArray(desc.content)) {
+                return desc.content.map(item => {
+                    if (item.content && Array.isArray(item.content)) {
+                        return item.content.map(c => c.text || '').join('');
+                    }
+                    return item.text || '';
+                }).join('\n');
+            }
+            
+            return 'Aucune description';
+        }
+        
+        // Fetch issue details from API
+        async function fetchIssueDetails() {
+            try {
+                console.log(`[Mock Jira] Fetching issue: ${issueKey}`);
+                
+                // Fetch the issue from Jira API
+                const response = await fetch(`/rest/api/2/issue/${issueKey}`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const issue = await response.json();
+                console.log(`[Mock Jira] Loaded issue data for ${issueKey}:`, issue);
+                
+                // Also fetch server info to simulate additional Jira API calls
+                await fetch('/rest/api/2/serverInfo');
+                await fetch('/rest/api/2/field');
+                
+                return issue;
+            } catch (error) {
+                console.error(`[Mock Jira] Error fetching issue ${issueKey}:`, error);
+                
+                // Return mock data as fallback
+                const statuses = ['To Do', 'In Progress', 'In Review', 'Done', 'Blocked'];
+                const types = ['Bug', 'Story', 'Task', 'Epic'];
+                const priorities = ['Highest', 'High', 'Medium', 'Low', 'Lowest'];
+                const localUsers = users || ['John Doe', 'Jane Smith', 'Bob Johnson', 'Alice Brown', 'Charlie Wilson', 'Diana Prince', 'Clark Kent'];
+                
+                const issueNumber = parseInt(issueKey.replace('JIRA-', '') || '1');
+                
+                return {
+                    expand: 'renderedFields,names,schema,operations,editmeta,changelog,versionedRepresentations',
+                    id: (10000 + issueNumber).toString(),
+                    self: `http://localhost:3000/rest/api/2/issue/${10000 + issueNumber}`,
+                    key: issueKey,
+                    fields: {
+                        summary: `Test Issue ${issueNumber} - ${['Fix', 'Implement', 'Update', 'Add', 'Remove'][Math.floor(Math.random() * 5)]} ${['feature', 'bug', 'documentation', 'test', 'style'][Math.floor(Math.random() * 5)]}`,
+                        description: {
+                            type: 'doc',
+                            version: 1,
+                            content: [{
+                                type: 'paragraph',
+                                content: [{
+                                    type: 'text',
+                                    text: `Ceci est la description du problème ${issueKey}. Cette description simule le contenu réel d'un ticket Jira pour tester l'extension eco-jira. Le contenu peut inclure des détails techniques, des étapes de reproduction, et des informations contextuelles.`
+                                }]
+                            }]
+                        },
+                        status: {
+                            name: statuses[Math.floor(Math.random() * statuses.length)],
+                            id: (10000 + Math.floor(Math.random() * statuses.length)).toString()
+                        },
+                        priority: {
+                            name: priorities[Math.floor(Math.random() * priorities.length)],
+                            id: (10000 + Math.floor(Math.random() * priorities.length)).toString()
+                        },
+                        issuetype: {
+                            name: types[Math.floor(Math.random() * types.length)],
+                            id: (10000 + Math.floor(Math.random() * types.length)).toString()
+                        },
+                        assignee: {
+                            displayName: localUsers[Math.floor(Math.random() * localUsers.length)],
+                            accountId: `user-${Math.floor(Math.random() * localUsers.length)}`
+                        },
+                        reporter: {
+                            displayName: localUsers[Math.floor(Math.random() * localUsers.length)],
+                            accountId: `user-${Math.floor(Math.random() * localUsers.length)}`
+                        },
+                        created: new Date(Date.now() - Math.floor(Math.random() * 30) * 86400000).toISOString(),
+                        updated: new Date(Date.now() - Math.floor(Math.random() * 7) * 86400000).toISOString()
+                    }
+                };
+            }
+        }
+        
+        // Render issue details
+        function renderIssue(issue) {
+            // Ensure users is defined
+            if (typeof users === 'undefined') {
+                console.warn('[Mock Jira] users not defined, using fallback');
+                window.users = ['John Doe', 'Jane Smith', 'Bob Johnson', 'Alice Brown', 'Charlie Wilson', 'Diana Prince', 'Clark Kent'];
+            }
+            const fields = issue.fields || {};
+            
+            // Update breadcrumb
+            document.getElementById('issue-key').textContent = issue.key;
+            
+            // Update header
+            document.getElementById('issue-key-display').textContent = issue.key;
+            document.getElementById('issue-summary').textContent = fields.summary || 'Sans titre';
+            
+            // Update type badge
+            const typeBadge = document.getElementById('issue-type-badge');
+            const issueType = fields.issuetype?.name || 'Task';
+            typeBadge.className = `issue-type-badge ${issueType.toLowerCase()}`;
+            typeBadge.textContent = issueType.toUpperCase();
+            
+            // Update status badge
+            const statusBadge = document.getElementById('issue-status-badge');
+            const statusName = fields.status?.name || 'To Do';
+            statusBadge.className = `issue-status-badge ${getStatusClass(statusName)}`;
+            statusBadge.textContent = statusName;
+            
+            // Update meta
+            document.getElementById('assignee').textContent = fields.assignee?.displayName || 'Non assigné';
+            document.getElementById('reporter').textContent = fields.reporter?.displayName || 'Non assigné';
+            
+            const priorityName = fields.priority?.name || 'Medium';
+            const priorityEl = document.getElementById('priority');
+            priorityEl.className = `meta-value ${getPriorityClass(priorityName)}`;
+            priorityEl.textContent = priorityName;
+            
+            document.getElementById('created').textContent = formatDate(fields.created);
+            document.getElementById('updated').textContent = formatDate(fields.updated);
+            
+            // Update description
+            const description = extractTextFromDescription(fields.description);
+            document.getElementById('description-content').innerHTML = `<p>${description.split('\n').join('</p><p>')}</p>`;
+            
+            // Add mock comments
+            const commentsContainer = document.getElementById('comments-container');
+            const commentCount = Math.floor(Math.random() * 3) + 1; // 1-3 comments
+            
+            for (let i = 0; i < commentCount; i++) {
+                const comment = document.createElement('div');
+                comment.className = 'comment';
+                const commentDate = new Date(Date.now() - (commentCount - i) * 86400000).toLocaleDateString('fr-FR');
+                comment.innerHTML = `
+                    <div class="comment-header">
+                        <span class="comment-author">${users[Math.floor(Math.random() * users.length)]}</span>
+                        <span class="comment-date">il y a ${commentCount - i} jour(s)</span>
+                    </div>
+                    <div class="comment-body">
+                        Commentaire de test ${i + 1} pour le problème ${issue.key}. Ce commentaire simule une discussion sur le ticket.
+                    </div>
+                `;
+                commentsContainer.appendChild(comment);
+            }
+            
+            // Add mock activity
+            const activityContainer = document.getElementById('activity-container');
+            const activities = [
+                { icon: '🔄', text: `Statut changé de <strong>À faire</strong> à <strong>${statusName}</strong> par ${fields.assignee?.displayName || 'Utilisateur'}` },
+                { icon: '👤', text: `Assigné à <strong>${fields.assignee?.displayName || 'Utilisateur'}</strong> par ${fields.reporter?.displayName || 'Utilisateur'}` },
+                { icon: '📝', text: `Problème créé par <strong>${fields.reporter?.displayName || 'Utilisateur'}</strong>` },
+                { icon: '💬', text: `Commentaire ajouté par <strong>${users[Math.floor(Math.random() * users.length)]}</strong>` },
+                { icon: '✏️', text: `Description mise à jour par <strong>${fields.reporter?.displayName || 'Utilisateur'}</strong>` }
+            ];
+            
+            const activityCount = Math.floor(Math.random() * 3) + 2; // 2-4 activities
+            for (let i = 0; i < activityCount && i < activities.length; i++) {
+                const activity = document.createElement('div');
+                activity.className = 'activity-item';
+                activity.innerHTML = `
+                    <span class="activity-icon">${activities[i].icon}</span>
+                    <span class="activity-text">${activities[i].text}</span>
+                    <span class="activity-date">il y a ${activityCount - i} jour(s)</span>
+                `;
+                activityContainer.appendChild(activity);
+            }
+            
+            // Hide loading, show content
+            document.getElementById('loading-container').style.display = 'none';
+            document.getElementById('issue-container').style.display = 'block';
+            
+            // Update board link if we know the board
+            if (boardId && boardId !== 'issue') {
+                document.getElementById('board-link').href = `/jira/board/${boardId}`;
+            }
+        }
+        
+        // Error handling
+        function showError(error) {
+            const loadingContainer = document.getElementById('loading-container');
+            loadingContainer.innerHTML = `
+                <div class="error-message">
+                    <strong>Erreur de chargement :</strong> ${error.message || 'Impossible de charger le problème'}
+                    <p>Réessayer ? <button onclick="location.reload()">Recharger</button></p>
+                </div>
+            `;
+        }
+        
+        // Initialize
+        async function init() {
+            try {
+                const issue = await fetchIssueDetails();
+                renderIssue(issue);
+            } catch (error) {
+                showError(error);
+            }
+        }
+        
+        console.log('[Mock Jira] Initializing issue page...');
+        init();
+    </script>
+</body>
+</html>

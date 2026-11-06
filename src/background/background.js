@@ -133,7 +133,8 @@ async function isJiraUrl(urlString) {
     return instances.some(instance => {
       try {
         const instanceUrl = new URL(instance.baseUrl);
-        return url.hostname === instanceUrl.hostname;
+        // Compare hostname WITHOUT port
+        return url.hostname.replace(/:\d+$/, '') === instanceUrl.hostname.replace(/:\d+$/, '');
       } catch (e) {
         return false;
       }
@@ -308,7 +309,8 @@ async function updateIcon() {
       const isActive = instances.some(instance => {
         try {
           const instanceUrl = new URL(instance.baseUrl);
-          return url.hostname === instanceUrl.hostname;
+          // Compare hostname WITHOUT port
+          return url.hostname.replace(/:\d+$/, '') === instanceUrl.hostname.replace(/:\d+$/, '');
         } catch (e) {
           return false;
         }
@@ -359,12 +361,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'ADD_JIRA_INSTANCE':
           const { instance } = message;
           const savedInstances = await saveJiraInstance(instance);
+          
+          // Broadcast to all tabs
+          chrome.tabs.query({}, (tabs) => {
+            tabs.forEach(tab => {
+              chrome.tabs.sendMessage(tab.id, { 
+                type: 'UPDATE_JIRA_INSTANCES', 
+                instances: savedInstances 
+              }).catch(() => {});
+            });
+          });
+          
           sendResponse({ success: true, instances: savedInstances });
           break;
           
         case 'REMOVE_JIRA_INSTANCE':
           const { baseUrl } = message;
           const filteredInstances = await removeJiraInstance(baseUrl);
+          
+          // Broadcast to all tabs
+          chrome.tabs.query({}, (tabs) => {
+            tabs.forEach(tab => {
+              chrome.tabs.sendMessage(tab.id, { 
+                type: 'UPDATE_JIRA_INSTANCES', 
+                instances: filteredInstances 
+              }).catch(() => {});
+            });
+          });
+          
           sendResponse({ success: true, instances: filteredInstances });
           break;
           

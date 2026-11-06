@@ -1,0 +1,17 @@
+{
+  "name": "jira-mock-server",
+  "version": "1.0.0",
+  "description": "Mock Jira server for eco-jira extension testing",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

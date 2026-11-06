@@ -95,7 +95,8 @@
       for (const instance of jiraInstances) {
         try {
           const instanceUrl = new URL(instance.baseUrl);
-          if (url.hostname === instanceUrl.hostname) {
+          // Compare hostname WITHOUT port
+          if (url.hostname.replace(/:\d+$/, '') === instanceUrl.hostname.replace(/:\d+$/, '')) {
             // Only cache GET requests for now
             if (method === 'GET') {
               return true;
@@ -110,7 +111,10 @@
       // Also check for common Jira patterns (in case instances not loaded yet)
       if (url.hostname.includes('atlassian.net') || 
           url.hostname.includes('jira') ||
-          url.pathname.includes('/jira')) {
+          url.pathname.includes('/jira') ||
+          url.hostname === 'localhost' ||
+          url.hostname === '127.0.0.1' ||
+          url.hostname.match(/^localhost:\d+$/)) {
         return method === 'GET';
       }
       
@@ -204,6 +208,15 @@
     return entry;
   }
 
+  // Format time remaining as HH:MM:SS
+  function formatTimeRemaining(timestamp, ttl) {
+    const remaining = Math.max(0, ttl - (Date.now() - timestamp));
+    const hours = Math.floor(remaining / (1000 * 60 * 60));
+    const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }
+
   // Override fetch
   window.fetch = async function(resource, init = {}) {
     const method = (init.method || 'GET').toUpperCase();
@@ -233,13 +246,17 @@
         }
       });
       
-      // Create Response object from cached data
+      // Create Response object from cached data with 304 status and custom headers
       const response = new Response(
         new Blob([new Uint8Array(cached.body)]),
         {
-          status: cached.status,
-          statusText: cached.statusText || '',
-          headers: new Headers(cached.headers)
+          status: 304,
+          statusText: 'Not Modified (from eco-jira cache)',
+          headers: new Headers({
+            ...cached.headers,
+            'X-EcoJira-fromCache': 'true',
+            'X-EcoJira-expiresIn': formatTimeRemaining(cached.timestamp, cached.ttl)
+          })
         }
       );
       
@@ -308,10 +325,10 @@
         }
       });
       
-      // Simulate response
+      // Simulate response with 304 status and custom headers
       const xhr = this;
-      xhr.status = cached.status;
-      xhr.statusText = cached.statusText || '';
+      xhr.status = 304;
+      xhr.statusText = 'Not Modified (from eco-jira cache)';
       
       // Convert body to string
       const bodyArray = cached.body ? new Uint8Array(cached.body) : new Uint8Array();
@@ -320,10 +337,16 @@
       xhr.responseText = bodyString;
       xhr.response = bodyString;
       
+      // Add custom headers to cached headers
+      const allHeaders = {
+        ...(cached.headers || {}),
+        'X-EcoJira-fromCache': 'true',
+        'X-EcoJira-expiresIn': formatTimeRemaining(cached.timestamp, cached.ttl)
+      };
+      
       // Mock getResponseHeader
       xhr.getResponseHeader = function(headerName) {
-        const headers = cached.headers || {};
-        for (const [key, value] of Object.entries(headers)) {
+        for (const [key, value] of Object.entries(allHeaders)) {
           if (key.toLowerCase() === headerName.toLowerCase()) {
             return value;
           }
@@ -332,8 +355,7 @@
       };
       
       xhr.getAllResponseHeaders = function() {
-        const headers = cached.headers || {};
-        return Object.entries(headers)
+        return Object.entries(allHeaders)
           .map(([key, value]) => `${key}: ${value}`)
           .join('\r\n');
       };
