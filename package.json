@@ -1,0 +1,31 @@
+{
+  "name": "eco-jira",
+  "version": "0.1.0",
+  "description": "Browser extension that caches Jira requests to reduce network traffic",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "build:icons": "node scripts/build-icons.js",
+    "package": "node scripts/package.js",
+    "dev": "node scripts/dev.js"
+  },
+  "dependencies": {
+    "sharp": "^0.33.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "jira",
+    "cache",
+    "browser-extension",
+    "chrome",
+    "firefox",
+    "performance"
+  ],
+  "author": "Anthony Pena",
+  "license": "MIT"
+}

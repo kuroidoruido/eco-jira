@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>eco-jira</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div class="popup-container">
+        <header class="popup-header">
+            <h1>eco-jira</h1>
+            <p class="subtitle">Cache intelligent pour Jira</p>
+        </header>
+        
+        <section class="status-section" id="status-section">
+            <div class="status-indicator" id="status-indicator">
+                <span class="status-icon" id="status-icon"></span>
+                <span class="status-text" id="status-text">Chargement...</span>
+            </div>
+            <p class="status-description" id="status-description"></p>
+        </section>
+        
+        <section class="controls-section" id="controls-section" style="display: none;">
+            <button class="btn btn-primary" id="activate-btn">
+                Activer sur ce site
+            </button>
+            <button class="btn btn-secondary" id="deactivate-btn" style="display: none;">
+                Désactiver
+            </button>
+        </section>
+        
+        <section class="jira-instances-section">
+            <h2>Instances Jira enregistrées</h2>
+            <div class="instances-list" id="instances-list">
+                <p class="empty-message">Aucune instance enregistrée</p>
+            </div>
+        </section>
+        
+        <section class="stats-section">
+            <h2>Statistiques</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <span class="stat-value" id="bytes-saved">0 B</span>
+                    <span class="stat-label">Octets économisés</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value" id="requests-saved">0</span>
+                    <span class="stat-label">Requêtes évitées</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value" id="cache-hits">0</span>
+                    <span class="stat-label">Cache hits</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value" id="cache-misses">0</span>
+                    <span class="stat-label">Cache misses</span>
+                </div>
+            </div>
+        </section>
+        
+        <section class="actions-section">
+            <button class="btn btn-sm btn-warning" id="clear-cache-btn">
+                Vider le cache
+            </button>
+            <button class="btn btn-sm btn-danger" id="reset-stats-btn">
+                Réinitialiser les stats
+            </button>
+            <button class="btn btn-sm" id="test-connection-btn" style="display: none;">
+                Tester la connexion
+            </button>
+        </section>
+        
+        <footer class="popup-footer">
+            <p>v1.0.0 | <a href="#" id="info-link">Info</a></p>
+        </footer>
+    </div>
+    
+    <script src="popup.js"></script>
+</body>
+</html>
